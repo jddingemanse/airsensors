@@ -1,4 +1,4 @@
-// SPSA: SPS30 Sensirion Arduino sensor
+// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.3.
 
 // ######### SET THE DEVICEID ####################
 String deviceID = "SPSAXXXX"; #Enter the deviceID
