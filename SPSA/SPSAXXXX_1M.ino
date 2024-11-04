@@ -1,4 +1,4 @@
-// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.3.
+// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.4.
 
 // ######### SET THE DEVICEID ####################
 String deviceID = "SPSAXXXX"; #Enter the deviceID
@@ -35,13 +35,19 @@ int ledposition = 8;
  * SDA.........SDA
  * SCL.........SCL
  * 
+ * SSD1306.....Mega //sketch parts from Adafruit SSD1306
+ * GND.........GND
+ * VCC.........5V
+ * SDA.........SDA
+ * SCL.........SCL
+ *
  * Green LED....Mega
  * +............8 [+: longer leg]
  * -..resistor..GND [-: smaller leg]
  */
 
 String sensors = "SPS30,BME280";
-String softwareVersion = "V03-60S";
+String softwareVersion = "V04-60S";
 
 #include <SPI.h>
 #include "SdFat.h"
@@ -50,6 +56,8 @@ String softwareVersion = "V03-60S";
 #include "sps30.h"
 #include <LowPower.h>
 #include "SparkFunBME280.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 SPS30 sps30;
 SdFat SD;
@@ -60,6 +68,33 @@ BME280 bmeSensor;
 #define SP30_COMMS I2C_COMMS
 #define DEBUG 0
 #define PERFORMCLEANNOW 1 //SPS030 cleaning
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#define LOGO_HEIGHT   16
+#define LOGO_WIDTH    16
+static const unsigned char PROGMEM logo_bmp[] =
+{ 0b00000000, 0b11000000,
+  0b00000001, 0b11000000,
+  0b00000001, 0b11000000,
+  0b00000011, 0b11100000,
+  0b11110011, 0b11100000,
+  0b11111110, 0b11111000,
+  0b01111110, 0b11111111,
+  0b00110011, 0b10011111,
+  0b00011111, 0b11111100,
+  0b00001101, 0b01110000,
+  0b00011011, 0b10100000,
+  0b00111111, 0b11100000,
+  0b00111111, 0b11110000,
+  0b01111100, 0b11110000,
+  0b01110000, 0b01110000,
+  0b00000000, 0b00110000 };
+
 File metaFile;
 String meta_filename = "metadata_"+deviceID+".txt";
 String metaheader = "datetime;software;deviceID;spsSerial;sensors";
@@ -78,6 +113,7 @@ int count = 1; //counter to keep track of minute averages
 unsigned long previousMillis = 0;
 unsigned long interval = 60000UL;
 bool sdFailure = false; //variable to keep track of sdFailure. If 1: try to reinitialize during loop.
+bool bmeFailure = false;
 
 long counter = 0; // For every restart, a counter is included
 
@@ -114,7 +150,8 @@ void setup() {
   if (bmeSensor.beginI2C() == false)
   {
     Serial.println("The BME280 sensor did not respond. Please check wiring.");
-    while(1); //Freeze
+    bmeFailure = true;
+    //while(1); //Freeze
   }
 
   Serial.println("initialization done.");
@@ -211,6 +248,9 @@ void loop()
     count++;
   }
 
+  // Try to connect the screen
+  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
+
   // If it is time to write the minute average
   if (millis() - previousMillis > interval)
   {
@@ -237,6 +277,7 @@ void loop()
 
     pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(valAvg.PartSize);
     bmeString = String(temp)+";"+String(humidity)+";"+String(pressure);
+    if(bmeFailure) bmeString = ";;";
     data = String(String(counter)+';'+now.timestamp(DateTime::TIMESTAMP_FULL))+";"+pmString+";"+bmeString+";"+metaString;
     serialdata = String(String(counter)+'\t'+now.timestamp(DateTime::TIMESTAMP_FULL))+'\t'+pmString+'\t'+bmeString;
     Serial.println(serialdata);
@@ -256,6 +297,7 @@ void loop()
     dataFile = SD.open(data_filename, FILE_WRITE);
     // if the file opened okay, write to it:
     if (dataFile) {
+      screentext("Writing to SD");
       if(!datafile_exists) {
         dataFile.println(dataheader);
       }
@@ -272,6 +314,7 @@ void loop()
       digitalWrite(ledposition, LOW);            
     } else {
       // if the file didn't open, print an error and blink 10 times:
+      screentext("SD error");
       Serial.println("error opening datafile");
       sdFailure = true;
       for(int i=0;i<10;i++){
@@ -283,11 +326,47 @@ void loop()
     }
     metaString = "";
     ++counter;
+    screentext("");
+  }
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
   }
   
-  
+  DateTime now = rtc.now();
+  screentext(String(now.timestamp(DateTime::TIMESTAMP_FULL)).c_str());
+  String pmtext = "PM2.5: " + String(val.MassPM2);
+  addscreentext(pmtext.c_str());
+  if (bmeFailure) {
+    String bmefailuretext = "BME failure";
+    addscreentext(bmefailuretext.c_str());
+  }
+  else {
+    String bmetext = "T;RH;P " + bmeString;
+    addscreentext(bmetext.c_str());
+  }
+  if (sdFailure) {
+    String sdfailuretext = "SD failure";
+    addscreentext(sdfailuretext.c_str());
+  }
+
   digitalWrite(ledposition, HIGH);
   delay(1000);
   digitalWrite(ledposition, LOW);
   delay(7500);
+  screentext("");
+}
+
+void screentext(const char* input) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println((input));
+  display.display();
+}
+
+void addscreentext(const char* input) {
+  display.println(input);
+  display.display();
 }
