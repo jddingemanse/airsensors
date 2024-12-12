@@ -1,9 +1,9 @@
-// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.4.
+// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.5.
 
 // ######### SET THE DEVICEID ####################
-String deviceID = "SPSAXXXX"; #Enter the deviceID
+String deviceID = "SPSA0013";
 
-// ######### SET THE LED PIN ##################### Normally pin 8
+// ######### SET THE LED PIN ##################### -- 8 for [SPSA0002]
 int ledposition = 8;
 
 //taking 1 minute measurements
@@ -101,7 +101,7 @@ String metaheader = "datetime;software;deviceID;spsSerial;sensors";
 File dataFile;
 String data_filename= "";
 String month_cov = "";
-String dataheader = "counter;datetime;PM1;PM2_5;PM4;PM10;NumPM1;NumPM2_5;NumPM4;NumPM10;PartSize;tempC;humidity;pressure;meta";
+String dataheader = "counter;datetime;PM1;PM2_5;PM4;PM10;NumPM0;NumPM1;NumPM2_5;NumPM4;NumPM10;PartSize;tempC;humidity;pressure;meta";
 String data ="";
 String serialdata = "";
 struct sps_values val;
@@ -240,6 +240,7 @@ void loop()
     valAvg.MassPM2 = (valAvg.MassPM2 * (count - 1) + val.MassPM2) / count;
     valAvg.MassPM4 = (valAvg.MassPM4 * (count - 1) + val.MassPM4) / count;
     valAvg.MassPM10 = (valAvg.MassPM10*(count - 1) + val.MassPM10)/ count;
+    valAvg.NumPM0 = (valAvg.NumPM0 * (count - 1) + val.NumPM0) / count;
     valAvg.NumPM1 = (valAvg.NumPM1 * (count - 1) + val.NumPM1) / count;
     valAvg.NumPM2 = (valAvg.NumPM2 * (count - 1) + val.NumPM2) / count;
     valAvg.NumPM4 = (valAvg.NumPM4 * (count - 1) + val.NumPM4) / count;
@@ -262,6 +263,7 @@ void loop()
     long pm2 = static_cast<long>(floor(valAvg.MassPM2+0.5));
     long pm4 = static_cast<long>(floor(valAvg.MassPM4+0.5));
     long pm10 = static_cast<long>(floor(valAvg.MassPM10+0.5));
+    long num0 = static_cast<long>(floor(valAvg.NumPM0+0.5));
     long num1 = static_cast<long>(floor(valAvg.NumPM1+0.5));
     long num2 = static_cast<long>(floor(valAvg.NumPM2+0.5));
     long num4 = static_cast<long>(floor(valAvg.NumPM4+0.5));
@@ -275,7 +277,7 @@ void loop()
     if(now.month() <10) month_cov = "0"+ month_cov;
     data_filename = deviceID + "_" + String(now.year())+month_cov+".txt";
 
-    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(valAvg.PartSize);
+    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num0)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(valAvg.PartSize);
     bmeString = String(temp)+";"+String(humidity)+";"+String(pressure);
     if(bmeFailure) bmeString = ";;";
     data = String(String(counter)+';'+now.timestamp(DateTime::TIMESTAMP_FULL))+";"+pmString+";"+bmeString+";"+metaString;
