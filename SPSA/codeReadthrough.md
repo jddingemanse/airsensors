@@ -6,13 +6,17 @@ validation by others.*
 # 1. General information
 ## 1.1 Hardware
 This sketch version includes the following hardware:
-- Arduino Mega 2560;
-- SPS30 Sensirion sensor;
-- BME280 RH/T sensor;
-- Micro SD module (+ card);
-- DS3231 real-time clock (RTC);
-- SSD1306 0.96in OLED screen;
-- Green LED.
+- Arduino Mega 2560 (the microprocessor);
+- SPS30 Sensirion sensor (Particulate Matter sensor);
+- BME280 RH/T sensor (Temperature, relative humidity and pressure sensor);
+- Micro SD module (+ card) (for data storage);
+- DS3231 real-time clock (RTC) (for keeping the time);
+- SSD1306 0.96in OLED screen (a small screen for some information);
+- Green LED (a light to indicate that the measurement cycle is going on).
+
+The system will only work if at the start the SPS30, SD module + card and DS3231 are correctly
+connected to the Arduino Mega 2560. The BME280, SSD1306 and green led are optional (if not
+connected, still the system will run).
 
 ## 1.2 Libraries
 The SPSA code is mostly a combination of example sketches from the libraries
