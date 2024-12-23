@@ -478,11 +478,18 @@ In case the SD was missing an earlier cycle (sdFailure = true) and the SD card i
       }
     }
 ```
-
+Creating a variable `datafile_exists`; if the file did not yet exist (first time for the instrument,
+or every new month), this one will be `false` - in order to decide to include a header.
 ```
     // Decide whether headers need to be included    
     bool datafile_exists = SD.exists(data_filename);
-
+```
+Try to open the file. If it opened, and it was a new file (`datafile_exists == true`), the string 
+`dataheader` is printed as new line. In any case, the string `data` is printed as new line.
+After closing the file, the green LED blinks twice for 500 miliseconds.
+If it did not open, this is printed to the screen and serial monitor, `sdFailure` is set to true,
+and the green LED blinks ten times for 200 miliseconds.
+```
     dataFile = SD.open(data_filename, FILE_WRITE);
     // if the file opened okay, write to it:
     if (dataFile) {
@@ -513,15 +520,29 @@ In case the SD was missing an earlier cycle (sdFailure = true) and the SD card i
         delay(200);  
       }      
     }
+```
+At the end of the minute-average cycle, metaString is set empty (only the first data line includes
+some metadata at the end of that line), and the minute-average counter is incremented.
+```
     metaString = "";
     ++counter;
     screentext("");
   }
 
+```
+### 2.3.2 Back to every 10-seconds
+In case the screen was missing, and it is connected now, it is restarted.
+```
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
   }
-  
+```
+Some information is prepared to be put on the screen:
+- time;
+- SPS30 PM2.5 reading;
+- BME280 T, RH and P reading (if available) or `BME failure`;
+- if SD is not present, `SD failure`.
+```
   DateTime now = rtc.now();
   screentext(String(now.timestamp(DateTime::TIMESTAMP_FULL)).c_str());
   String pmtext = "PM2.5: " + String(val.MassPM2);
@@ -538,14 +559,20 @@ In case the SD was missing an earlier cycle (sdFailure = true) and the SD card i
     String sdfailuretext = "SD failure";
     addscreentext(sdfailuretext.c_str());
   }
-
+```
+Finally, the green LED blinks for 1 second, and the system halts for 7.5 seconds,
+to create with everything combined an approximate 10 second cycle.
+```
   digitalWrite(ledposition, HIGH);
   delay(1000);
   digitalWrite(ledposition, LOW);
   delay(7500);
   screentext("");
 }
-
+```
+## 2.4 Functions
+The function `screentext()` is used to clear the screen, and write a first line.
+```
 void screentext(const char* input) {
   display.clearDisplay();
   display.setTextSize(1);
@@ -554,7 +581,10 @@ void screentext(const char* input) {
   display.println((input));
   display.display();
 }
-
+```
+The function `addscreentext()` is used to add a line to the screen (always to be used
+after `screentext()`.
+```
 void addscreentext(const char* input) {
   display.println(input);
   display.display();
