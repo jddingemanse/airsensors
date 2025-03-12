@@ -1,6 +1,7 @@
 // SPSA: SPS30 Sensirion Arduino sensor
-/// V02_lu: Special code for Lund Lab testing: continuous screen inclusion, no low-power start (since no lithium battery)
+/// V03_lu: Special code for Lund Lab testing: continuous screen inclusion, no low-power start (since no lithium battery)
 /// Change versus V01: added numberconcentration 0.5
+/// Change versus V02: added cleaning every 9000 counters, and switched to one reading per minute (instead of average)
 
 // ######### SET THE DEVICEID ####################
 String deviceID = "SPSAXXXX";
@@ -40,7 +41,7 @@ String deviceID = "SPSAXXXX";
  */
 
 String sensors = "SPS30";
-String softwareVersion = "V_01lu";
+String softwareVersion = "V_03lu";
 
 #include <SPI.h>
 #include "SdFat.h"
@@ -109,6 +110,7 @@ unsigned long previousMillis = 0;
 unsigned long interval = 60000UL;
 bool sdFailure = false; //variable to keep track of sdFailure. If 1: try to reinitialize during loop.
 bool bmeFailure = false;
+long next_clean_count = 9000;
 
 long counter = 0; // For every restart, a counter is included
 
@@ -224,27 +226,17 @@ void setup() {
 void loop() 
 {
   if (previousMillis == 0) previousMillis = millis();
-  if (counter > 1) digitalWrite(screenposition, LOW); // Turn screen off after first minute. From now on, only screen with button.
   
-  sps30.GetValues(&val);
+  if (counter > next_clean_count) {
+    next_clean_count = next_clean_count + 9000;
+    if (sps30.clean() == true) {
+      Serial.println(F("fan-cleaning started"));
+    }
+    else {
+      Serial.println(F("Could NOT start fan-cleaning"));
+    }
+    delay(30000);
 
-  // Building the average
-  if (count == 1) {
-    valAvg = val;
-    count++;
-  }
-  else {
-    valAvg.MassPM1 = (valAvg.MassPM1 * (count - 1) + val.MassPM1) / count;
-    valAvg.MassPM2 = (valAvg.MassPM2 * (count - 1) + val.MassPM2) / count;
-    valAvg.MassPM4 = (valAvg.MassPM4 * (count - 1) + val.MassPM4) / count;
-    valAvg.MassPM10 = (valAvg.MassPM10*(count - 1) + val.MassPM10)/ count;
-    valAvg.NumPM0 = (valAvg.NumPM0) * (count - 1) + val.NumPM0) / count;
-    valAvg.NumPM1 = (valAvg.NumPM1 * (count - 1) + val.NumPM1) / count;
-    valAvg.NumPM2 = (valAvg.NumPM2 * (count - 1) + val.NumPM2) / count;
-    valAvg.NumPM4 = (valAvg.NumPM4 * (count - 1) + val.NumPM4) / count;
-    valAvg.NumPM10 = (valAvg.NumPM10 * (count - 1) + val.NumPM10) / count;
-    valAvg.PartSize = (valAvg.PartSize * (count - 1) + val.PartSize) / count;
-    count++;
   }
 
   // Try to connect the screen
@@ -254,18 +246,19 @@ void loop()
   if (millis() - previousMillis > interval)
   {
     previousMillis = millis();
-    count = 0;
     DateTime now = rtc.now();
 
-    long pm1 = static_cast<long>(floor(valAvg.MassPM1+0.5));
-    long pm2 = static_cast<long>(floor(valAvg.MassPM2+0.5));
-    long pm4 = static_cast<long>(floor(valAvg.MassPM4+0.5));
-    long pm10 = static_cast<long>(floor(valAvg.MassPM10+0.5));
-    long num0 = static_cast<long>(floor(valAvg.NumPM0+0.5));
-    long num1 = static_cast<long>(floor(valAvg.NumPM1+0.5));
-    long num2 = static_cast<long>(floor(valAvg.NumPM2+0.5));
-    long num4 = static_cast<long>(floor(valAvg.NumPM4+0.5));
-    long num10 = static_cast<long>(floor(valAvg.NumPM10+0.5));
+    sps30.GetValues(&val);
+
+    long pm1 = static_cast<long>(floor(val.MassPM1+0.5));
+    long pm2 = static_cast<long>(floor(val.MassPM2+0.5));
+    long pm4 = static_cast<long>(floor(val.MassPM4+0.5));
+    long pm10 = static_cast<long>(floor(val.MassPM10+0.5));
+    long num0 = static_cast<long>(floor(val.NumPM0+0.5));
+    long num1 = static_cast<long>(floor(val.NumPM1+0.5));
+    long num2 = static_cast<long>(floor(val.NumPM2+0.5));
+    long num4 = static_cast<long>(floor(val.NumPM4+0.5));
+    long num10 = static_cast<long>(floor(val.NumPM10+0.5));
 
     float temp = bmeSensor.readTempC();
     int humidity = static_cast<int>(round(bmeSensor.readFloatHumidity()));
@@ -275,12 +268,13 @@ void loop()
     if(now.month() <10) month_cov = "0"+ month_cov;
     data_filename = deviceID + "_" + String(now.year())+month_cov+".txt";
 
-    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num0)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(valAvg.PartSize);
+    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num0)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(val.PartSize);
     bmeString = String(temp)+";"+String(humidity)+";"+String(pressure);
     if(bmeFailure) bmeString = ";;";
-    data = String(String(counter)+';'+now.timestamp(DateTime::TIMESTAMP_FULL))+";"+pmString+";"+bmeString+";"+metaString;
-    serialdata = String(String(counter)+'\t'+now.timestamp(DateTime::TIMESTAMP_FULL))+'\t'+pmString+'\t'+bmeString;
-    Serial.println(serialdata);
+    
+    Serial.print(String(String(counter)+'\t'+now.timestamp(DateTime::TIMESTAMP_FULL))+'\t');
+    Serial.print(pmString + '\t');
+    Serial.println(bmeString);
 
     if (sdFailure) {  //Try to reinitialize SD card
       if (!SD.begin(SD_CS_PIN)) {
@@ -332,6 +326,8 @@ void loop()
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
   }
+  
+  sps30.GetValues(&val);
   
   DateTime now = rtc.now();
   screentext(deviceID.c_str());
