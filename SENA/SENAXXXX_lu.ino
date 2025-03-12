@@ -1,5 +1,7 @@
 // SENA: SEN55 Sensirion Arduino sensor
-/// V01_lu: Special code for Lund Lab testing: continuous screen inclusion, 1 minute measurements
+/// V03_lu: Special code for Lund Lab testing: continuous screen inclusion, 1 minute measurements
+/// V02: included number concentrations and fan cleaning
+/// V03: single reading per minute, fan cleaning every 9000
 
 /* 
  * SEN55........MEGA
@@ -46,7 +48,7 @@
 
 // ######### SET THE DEVICEID ####################
 String deviceID = "SENAXXXX";
-String softwareVersion = "V_01lu";
+String softwareVersion = "V_03lu";
 String sensors = "SEN55";
 int ledposition = 8;
 
@@ -107,6 +109,7 @@ int count = 1; //counter to keep track of minute averages
 unsigned long previousMillis = 0;
 unsigned long interval = 60000UL;
 bool sdFailure = false; //variable to keep track of sdFailure. If 1: try to reinitialize during loop.
+long next_clean_count = 9000;
 
 float pm1;
 float pm25;
@@ -208,6 +211,17 @@ void setup() {
       Serial.println(errorMessage);
   }
 
+  //Fan cleaning
+  error = sen5x.startFanCleaning();
+  if (error) {
+    Serial.print("Error trying to start fan cleaning: ");
+    errorToString(error, errorMessage, 256);
+    Serial.println(errorMessage);
+  }
+  else {
+    Serial.println("Fan cleaning.");
+    delay(30000);
+  }
   Serial.println(F("Measurements starting..."));
 
   digitalWrite(ledposition, HIGH);
@@ -231,40 +245,25 @@ void loop() {
   uint16_t error;
   char errorMessage[256];
 
+  if (counter > next_clean_count) {
+    next_clean_count = next_clean_count + 9000;
+    error = sen5x.startFanCleaning();
+    if (error) {
+      Serial.print("Error trying to start fan cleaning: ");
+      errorToString(error, errorMessage, 256);
+      Serial.println(errorMessage);
+    }
+    else {
+      Serial.println("Fan cleaning.");
+      delay(30000);
+    }
+  }
 
   // Get the data
   sen5x.readMeasuredValues(
     pm1, pm25, pm4, pm10, RH, T, VOC, NOX);
   sen5x.readMeasuredPmValues(
     pm1, pm25, pm4, pm10, n05, n1, n25, n4, n10, ps);
-
-  // Building the average
-  if (count == 1) {
-    apm1 = pm1;
-    apm25 = pm25;
-    apm4 = pm4;
-    apm10 = pm10;
-    an05 = n05;
-    an1 = n1;
-    an25 = n25;
-    an4 = n4;
-    an10 = n10;
-    aps = ps;
-    count++;
-  }
-  else {
-    apm1 = (apm1 * (count - 1) + pm1) / count;
-    apm25 = (apm25 * (count - 1) + pm25) / count;
-    apm4 = (apm4 * (count - 1) + pm4) / count;
-    apm10 = (apm10 * (count - 1) + pm10) / count;
-    an05 = (an05 * (count - 1) + n05) / count;
-    an1 = (an1 * (count - 1) + n1) / count;
-    an25 = (an25 * (count - 1) + n25) / count;
-    an4 = (an4 * (count - 1) + n4) / count;
-    an10 = (an10 * (count - 1) + n10) / count;
-    aps = (aps * (count - 1) + ps) / count;
-    count++;
-  }
 
   // Try to connect the screen
   display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
@@ -276,21 +275,21 @@ void loop() {
     count = 0;
     DateTime now = rtc.now();
 
-    long wpm1 = static_cast<long>(floor(apm1+0.5));
-    long wpm25 = static_cast<long>(floor(apm25+0.5));
-    long wpm4 = static_cast<long>(floor(apm4+0.5));
-    long wpm10 = static_cast<long>(floor(apm10+0.5));
-    long wn05 = static_cast<long>(floor(an05+0.5));
-    long wn1 = static_cast<long>(floor(an1+0.5));
-    long wn25 = static_cast<long>(floor(an25+0.5));
-    long wn4 = static_cast<long>(floor(an4+0.5));
-    long wn10 = static_cast<long>(floor(an10+0.5));
+    long wpm1 = static_cast<long>(floor(pm1+0.5));
+    long wpm25 = static_cast<long>(floor(pm25+0.5));
+    long wpm4 = static_cast<long>(floor(pm4+0.5));
+    long wpm10 = static_cast<long>(floor(pm10+0.5));
+    long wn05 = static_cast<long>(floor(n05+0.5));
+    long wn1 = static_cast<long>(floor(n1+0.5));
+    long wn25 = static_cast<long>(floor(n25+0.5));
+    long wn4 = static_cast<long>(floor(n4+0.5));
+    long wn10 = static_cast<long>(floor(n10+0.5));
 
     month_cov = String(now.month());
     if(now.month() <10) month_cov = "0"+ month_cov;
     data_filename = deviceID + "_" + String(now.year())+month_cov+".txt";
 
-    pmString = String(wpm1)+";"+String(wpm25)+";"+String(wpm4)+";"+String(wpm10)+';'+String(wn05)+';'+String(wn1)+';'+String(wn25)+';'+String(wn4)+';'+String(wn10)+';'+String(aps);
+    pmString = String(wpm1)+";"+String(wpm25)+";"+String(wpm4)+";"+String(wpm10)+';'+String(wn05)+';'+String(wn1)+';'+String(wn25)+';'+String(wn4)+';'+String(wn10)+';'+String(ps);
     otherString = String(T)+";"+String(RH)+";"+String(VOC)+";"+String(NOX);
 
     data = String(String(counter)+';'+now.timestamp(DateTime::TIMESTAMP_FULL))+";"+pmString+";"+otherString+";"+metaString;
