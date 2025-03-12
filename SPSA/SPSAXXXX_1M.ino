@@ -1,7 +1,7 @@
-// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.5.
+// SPSA: SPS30 Sensirion Arduino sensor. Script version 0.7.
 
 // ######### SET THE DEVICEID ####################
-String deviceID = "SPSA0013";
+String deviceID = "SPSAXXXX";
 
 // ######### SET THE LED PIN ##################### -- 8 for [SPSA0002]
 int ledposition = 8;
@@ -34,20 +34,15 @@ int ledposition = 8;
  * VCC.........5V
  * SDA.........SDA
  * SCL.........SCL
- * 
- * SSD1306.....Mega //sketch parts from Adafruit SSD1306
- * GND.........GND
- * VCC.........5V
- * SDA.........SDA
- * SCL.........SCL
  *
  * Green LED....Mega
  * +............8 [+: longer leg]
  * -..resistor..GND [-: smaller leg]
  */
 
+
 String sensors = "SPS30,BME280";
-String softwareVersion = "V04-60S";
+String softwareVersion = "V07";
 
 #include <SPI.h>
 #include "SdFat.h"
@@ -56,8 +51,6 @@ String softwareVersion = "V04-60S";
 #include "sps30.h"
 #include <LowPower.h>
 #include "SparkFunBME280.h"
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
 SPS30 sps30;
 SdFat SD;
@@ -68,32 +61,6 @@ BME280 bmeSensor;
 #define SP30_COMMS I2C_COMMS
 #define DEBUG 0
 #define PERFORMCLEANNOW 1 //SPS030 cleaning
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-#define LOGO_HEIGHT   16
-#define LOGO_WIDTH    16
-static const unsigned char PROGMEM logo_bmp[] =
-{ 0b00000000, 0b11000000,
-  0b00000001, 0b11000000,
-  0b00000001, 0b11000000,
-  0b00000011, 0b11100000,
-  0b11110011, 0b11100000,
-  0b11111110, 0b11111000,
-  0b01111110, 0b11111111,
-  0b00110011, 0b10011111,
-  0b00011111, 0b11111100,
-  0b00001101, 0b01110000,
-  0b00011011, 0b10100000,
-  0b00111111, 0b11100000,
-  0b00111111, 0b11110000,
-  0b01111100, 0b11110000,
-  0b01110000, 0b01110000,
-  0b00000000, 0b00110000 };
 
 File metaFile;
 String meta_filename = "metadata_"+deviceID+".txt";
@@ -105,15 +72,14 @@ String dataheader = "counter;datetime;PM1;PM2_5;PM4;PM10;NumPM0;NumPM1;NumPM2_5;
 String data ="";
 String serialdata = "";
 struct sps_values val;
-struct sps_values valAvg;
 String pmString = "";
 String bmeString = "";
 String metaString = "";
-int count = 1; //counter to keep track of minute averages
 unsigned long previousMillis = 0;
 unsigned long interval = 60000UL;
 bool sdFailure = false; //variable to keep track of sdFailure. If 1: try to reinitialize during loop.
 bool bmeFailure = false;
+long next_clean_count = 9000;
 
 long counter = 0; // For every restart, a counter is included
 
@@ -227,47 +193,36 @@ void setup() {
 void loop() 
 {
   if (previousMillis == 0) previousMillis = millis();
-  
-  sps30.GetValues(&val);
 
-  // Building the average
-  if (count == 1) {
-    valAvg = val;
-    count++;
-  }
-  else {
-    valAvg.MassPM1 = (valAvg.MassPM1 * (count - 1) + val.MassPM1) / count;
-    valAvg.MassPM2 = (valAvg.MassPM2 * (count - 1) + val.MassPM2) / count;
-    valAvg.MassPM4 = (valAvg.MassPM4 * (count - 1) + val.MassPM4) / count;
-    valAvg.MassPM10 = (valAvg.MassPM10*(count - 1) + val.MassPM10)/ count;
-    valAvg.NumPM0 = (valAvg.NumPM0 * (count - 1) + val.NumPM0) / count;
-    valAvg.NumPM1 = (valAvg.NumPM1 * (count - 1) + val.NumPM1) / count;
-    valAvg.NumPM2 = (valAvg.NumPM2 * (count - 1) + val.NumPM2) / count;
-    valAvg.NumPM4 = (valAvg.NumPM4 * (count - 1) + val.NumPM4) / count;
-    valAvg.NumPM10 = (valAvg.NumPM10 * (count - 1) + val.NumPM10) / count;
-    valAvg.PartSize = (valAvg.PartSize * (count - 1) + val.PartSize) / count;
-    count++;
+  if (counter > next_clean_count) {
+    next_clean_count = next_clean_count + 9000;
+    if (sps30.clean() == true) {
+      Serial.println(F("fan-cleaning started"));
+    }
+    else {
+      Serial.println(F("Could NOT start fan-cleaning"));
+    }
+    delay(30000);
+
   }
 
-  // Try to connect the screen
-  display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
-
-  // If it is time to write the minute average
+  // If it is time to take the minute reading
   if (millis() - previousMillis > interval)
   {
     previousMillis = millis();
-    count = 0;
     DateTime now = rtc.now();
 
-    long pm1 = static_cast<long>(floor(valAvg.MassPM1+0.5));
-    long pm2 = static_cast<long>(floor(valAvg.MassPM2+0.5));
-    long pm4 = static_cast<long>(floor(valAvg.MassPM4+0.5));
-    long pm10 = static_cast<long>(floor(valAvg.MassPM10+0.5));
-    long num0 = static_cast<long>(floor(valAvg.NumPM0+0.5));
-    long num1 = static_cast<long>(floor(valAvg.NumPM1+0.5));
-    long num2 = static_cast<long>(floor(valAvg.NumPM2+0.5));
-    long num4 = static_cast<long>(floor(valAvg.NumPM4+0.5));
-    long num10 = static_cast<long>(floor(valAvg.NumPM10+0.5));
+    sps30.GetValues(&val);
+
+    long pm1 = static_cast<long>(floor(val.MassPM1+0.5));
+    long pm2 = static_cast<long>(floor(val.MassPM2+0.5));
+    long pm4 = static_cast<long>(floor(val.MassPM4+0.5));
+    long pm10 = static_cast<long>(floor(val.MassPM10+0.5));
+    long num0 = static_cast<long>(floor(val.NumPM0+0.5));
+    long num1 = static_cast<long>(floor(val.NumPM1+0.5));
+    long num2 = static_cast<long>(floor(val.NumPM2+0.5));
+    long num4 = static_cast<long>(floor(val.NumPM4+0.5));
+    long num10 = static_cast<long>(floor(val.NumPM10+0.5));
 
     float temp = bmeSensor.readTempC();
     int humidity = static_cast<int>(round(bmeSensor.readFloatHumidity()));
@@ -277,12 +232,13 @@ void loop()
     if(now.month() <10) month_cov = "0"+ month_cov;
     data_filename = deviceID + "_" + String(now.year())+month_cov+".txt";
 
-    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num0)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(valAvg.PartSize);
+    pmString = String(pm1)+";"+String(pm2)+";"+String(pm4)+";"+String(pm10)+';'+String(num0)+';'+String(num1)+';'+String(num2)+';'+String(num4)+';'+String(num10)+';'+String(val.PartSize);
     bmeString = String(temp)+";"+String(humidity)+";"+String(pressure);
     if(bmeFailure) bmeString = ";;";
-    data = String(String(counter)+';'+now.timestamp(DateTime::TIMESTAMP_FULL))+";"+pmString+";"+bmeString+";"+metaString;
-    serialdata = String(String(counter)+'\t'+now.timestamp(DateTime::TIMESTAMP_FULL))+'\t'+pmString+'\t'+bmeString;
-    Serial.println(serialdata);
+    
+    Serial.print(String(String(counter)+'\t'+now.timestamp(DateTime::TIMESTAMP_FULL))+'\t');
+    Serial.print(pmString + '\t');
+    Serial.println(bmeString);
 
     if (sdFailure) {  //Try to reinitialize SD card
       if (!SD.begin(SD_CS_PIN)) {
@@ -299,12 +255,14 @@ void loop()
     dataFile = SD.open(data_filename, FILE_WRITE);
     // if the file opened okay, write to it:
     if (dataFile) {
-      screentext("Writing to SD");
       if(!datafile_exists) {
         dataFile.println(dataheader);
       }
 
-      dataFile.println(data);
+      dataFile.print(String(counter)+";"+now.timestamp(DateTime::TIMESTAMP_FULL)+";");
+      dataFile.print(pmString + ";");
+      dataFile.println(bmeString + ";" + metaString);
+
       // close the file:
       dataFile.close();
       digitalWrite(ledposition, HIGH);
@@ -316,7 +274,6 @@ void loop()
       digitalWrite(ledposition, LOW);            
     } else {
       // if the file didn't open, print an error and blink 10 times:
-      screentext("SD error");
       Serial.println("error opening datafile");
       sdFailure = true;
       for(int i=0;i<10;i++){
@@ -328,47 +285,10 @@ void loop()
     }
     metaString = "";
     ++counter;
-    screentext("");
-  }
-
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
   }
   
-  DateTime now = rtc.now();
-  screentext(String(now.timestamp(DateTime::TIMESTAMP_FULL)).c_str());
-  String pmtext = "PM2.5: " + String(val.MassPM2);
-  addscreentext(pmtext.c_str());
-  if (bmeFailure) {
-    String bmefailuretext = "BME failure";
-    addscreentext(bmefailuretext.c_str());
-  }
-  else {
-    String bmetext = "T;RH;P " + bmeString;
-    addscreentext(bmetext.c_str());
-  }
-  if (sdFailure) {
-    String sdfailuretext = "SD failure";
-    addscreentext(sdfailuretext.c_str());
-  }
-
   digitalWrite(ledposition, HIGH);
   delay(1000);
   digitalWrite(ledposition, LOW);
   delay(7500);
-  screentext("");
-}
-
-void screentext(const char* input) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println((input));
-  display.display();
-}
-
-void addscreentext(const char* input) {
-  display.println(input);
-  display.display();
 }
